@@ -128,7 +128,7 @@ ENV NODE_ENV=production \
   OPENCODE_ALLOW_ALL_MODELS=true \
   GEMINI_SANDBOX=false
 
-EXPOSE 3100
+EXPOSE 3100 8080
 
 # tini, not node, is PID 1. The entrypoint ends in `exec`, so without an init
 # node inherits PID 1 and never wait()s the orphans the kernel re-parents onto

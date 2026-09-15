@@ -45,4 +45,11 @@ if [ -d "$home_dir" ] && [ -n "$(find "$home_dir" \( ! -user node -o ! -group no
     chown -R node:node "$home_dir"
 fi
 
+# Start the OpenCore development preview from its persistent workspace.
+if [ -d /workspace/opencore ] && [ -f /workspace/opencore/index.php ]; then
+    echo "Starting OpenCore preview server on port 8080"
+    gosu node /usr/local/bin/php -S 0.0.0.0:8080 -t /workspace/opencore \
+        >/tmp/opencore-preview.log 2>&1 &
+fi
+
 exec gosu node "$@"

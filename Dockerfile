@@ -3,7 +3,7 @@ FROM node:24-trixie-slim AS base
 ARG USER_UID=1000
 ARG USER_GID=1000
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates gosu curl gh git wget ripgrep python3 tini \
+  && apt-get install -y --no-install-recommends ca-certificates gosu curl gh git wget ripgrep python3 tini php-cli php-mysql php-curl php-gd php-mbstring php-zip php-xml \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable
 

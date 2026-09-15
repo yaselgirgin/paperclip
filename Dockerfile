@@ -7,6 +7,12 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable
 
+RUN printf '%s\n' \
+  '#!/bin/sh' \
+  'exec env -u LD_LIBRARY_PATH -u LD_PRELOAD /usr/bin/php "$@"' \
+  > /usr/local/bin/php \
+  && chmod +x /usr/local/bin/php
+
 # Modify the existing node user/group to have the specified UID/GID to match host user
 RUN usermod -u $USER_UID --non-unique node \
   && groupmod -g $USER_GID --non-unique node \

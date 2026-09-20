@@ -143,11 +143,7 @@ function Setup({
   const [providerBinding, setProviderBinding] = useState<EnvBinding | null>(
     null,
   );
-  const [runtimeAiBinding, setRuntimeAiBinding] = useState<AiConnectionBinding | undefined>(() =>
-    brandType === "opencode_local"
-      ? { provider: "openrouter", method: "api_key", mode: "responsible_user" }
-      : undefined,
-  );
+  const [runtimeAiBinding, setRuntimeAiBinding] = useState<AiConnectionBinding | undefined>(undefined);
   const [connection, setConnection] = useState<ProviderConnection | null>(null);
   const aiBinding = runtimeAiBinding ?? connection?.aiConnection;
   const [repository, setRepository] = useState("");
@@ -833,6 +829,15 @@ function Setup({
                                 value={model}
                                 onChange={(value) => {
                                   setModel(value);
+                                  if (brandType === "opencode_local") {
+                                    setRuntimeAiBinding((current) =>
+                                      value.startsWith("openrouter/")
+                                        ? current?.provider === "openrouter"
+                                          ? current
+                                          : { provider: "openrouter", method: "api_key", mode: "responsible_user" }
+                                        : undefined,
+                                    );
+                                  }
                                   if (
                                     effort &&
                                     !setupEfforts(adapterType, value).includes(

@@ -5283,12 +5283,33 @@ export function agentRoutes(
         adapterConfig: patchData.adapterConfig,
       });
     }
-    if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && !requestedRuntimeConfig.aiConnection) requestedRuntimeConfig.aiConnection = existing.runtimeConfig.aiConnection;
-    const nextAiBinding = aiConnectionBindingSchema.safeParse(requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection).data;
+    const aiConfig = (patchData.adapterConfig ?? existing.adapterConfig) as Record<string, unknown>;
+    const openCodeModel = typeof aiConfig.model === "string" ? aiConfig.model.trim() : "";
+    const usesCustomOpenCodeProvider =
+      openCodeModel.length > 0 &&
+      !openCodeModel.startsWith("openrouter/") &&
+      (requestedAdapterType === "opencode_local" ||
+        (requestedAdapterType === "paperclip_runner" && aiConfig.provider === "opencode"));
+
+    // OpenCode supports arbitrary provider/model pairs from its own config. A managed
+    // OpenRouter binding is only valid for openrouter/* models; when an agent moves
+    // to a custom OpenCode provider, preserve the rest of runtimeConfig but drop the
+    // stale managed binding so the provider can authenticate through OpenCode config.
+    if (usesCustomOpenCodeProvider && existing.runtimeConfig.aiConnection) {
+      requestedRuntimeConfig = { ...(requestedRuntimeConfig ?? existing.runtimeConfig) };
+      delete requestedRuntimeConfig.aiConnection;
+    } else if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && !requestedRuntimeConfig.aiConnection) {
+      requestedRuntimeConfig.aiConnection = existing.runtimeConfig.aiConnection;
+    }
+
+    const nextAiBinding = aiConnectionBindingSchema.safeParse(
+      usesCustomOpenCodeProvider
+        ? undefined
+        : requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection,
+    ).data;
     if (nextAiBinding) {
       await assertCanUpdateAgent(req, existing);
       const changed = JSON.stringify(nextAiBinding) !== JSON.stringify(existing.runtimeConfig.aiConnection);
-      const aiConfig = (patchData.adapterConfig ?? existing.adapterConfig) as Record<string, unknown>;
       if (!isAiConnectionCompatible(nextAiBinding, requestedAdapterType, aiConfig.model, aiConfig.provider, aiConfig.acpxAgent)) throw unprocessable("Select an AI connection compatible with the new harness and model");
       if (changed) await validateManagedAgentBinding(req, existing.companyId, existing.id, requestedAdapterType, aiConfig, nextAiBinding, (patchData.defaultEnvironmentId !== undefined ? patchData.defaultEnvironmentId : existing.defaultEnvironmentId) as string | null, true);
     }

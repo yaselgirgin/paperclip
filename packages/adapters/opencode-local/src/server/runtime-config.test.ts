@@ -157,6 +157,79 @@ describe("prepareOpenCodeRuntimeConfig", () => {
     await prepared.cleanup();
   });
 
+  it("injects Paperclip MCP servers with run-scoped bearer tokens", async () => {
+    const configHome = await makeConfigHome({
+      permission: { read: "allow" },
+      mcp: {
+        existing: {
+          type: "remote",
+          url: "https://existing.example/mcp",
+          enabled: true,
+        },
+      },
+    });
+    const token = "run-scoped-mcp-secret";
+    const prepared = await prepareOpenCodeRuntimeConfig({
+      env: { XDG_CONFIG_HOME: configHome },
+      config: {},
+      runtimeMcpServers: [{
+        name: "mssql",
+        url: "https://paperclip.test/api/tool-gateway/gateways/mssql/mcp",
+        token,
+        connectionId: "connection-1234567890",
+      }],
+    });
+    cleanupPaths.add(prepared.env.XDG_CONFIG_HOME);
+
+    const runtimeConfig = JSON.parse(
+      await fs.readFile(path.join(prepared.env.XDG_CONFIG_HOME, "opencode", "opencode.json"), "utf8"),
+    ) as {
+      mcp?: Record<string, {
+        type?: string;
+        url?: string;
+        enabled?: boolean;
+        oauth?: boolean;
+        headers?: Record<string, string>;
+      }>;
+    };
+    expect(runtimeConfig.mcp?.existing).toBeDefined();
+    expect(runtimeConfig.mcp?.mssql).toMatchObject({
+      type: "remote",
+      url: "https://paperclip.test/api/tool-gateway/gateways/mssql/mcp",
+      enabled: true,
+      oauth: false,
+      headers: {
+        Authorization: "Bearer {env:PAPERCLIP_OPENCODE_MCP_TOKEN_1}",
+      },
+    });
+    expect(prepared.env.PAPERCLIP_OPENCODE_MCP_TOKEN_1).toBe(token);
+    expect(JSON.stringify(runtimeConfig)).not.toContain(token);
+    expect(prepared.notes.some((note) => note.includes("mssql"))).toBe(true);
+    await prepared.cleanup();
+  });
+
+  it("injects Paperclip MCP servers without forcing permission allow when permissions are not skipped", async () => {
+    const configHome = await makeConfigHome({ permission: { read: "ask" } });
+    const prepared = await prepareOpenCodeRuntimeConfig({
+      env: { XDG_CONFIG_HOME: configHome },
+      config: { dangerouslySkipPermissions: false },
+      runtimeMcpServers: [{
+        name: "mssql",
+        url: "https://paperclip.test/api/tool-gateway/gateways/mssql/mcp",
+        token: "run-scoped-mcp-secret",
+        connectionId: "connection-1",
+      }],
+    });
+    cleanupPaths.add(prepared.env.XDG_CONFIG_HOME);
+
+    const runtimeConfig = JSON.parse(
+      await fs.readFile(path.join(prepared.env.XDG_CONFIG_HOME, "opencode", "opencode.json"), "utf8"),
+    ) as { permission?: Record<string, string>; mcp?: Record<string, unknown> };
+    expect(runtimeConfig.permission).toEqual({ read: "ask" });
+    expect(runtimeConfig.mcp?.mssql).toBeDefined();
+    await prepared.cleanup();
+  });
+
   it("pins small_model from PAPERCLIP_OPENCODE_SMALL_MODEL", async () => {
     const configHome = await makeConfigHome({ permission: { read: "allow" } });
     const prepared = await prepareOpenCodeRuntimeConfig({

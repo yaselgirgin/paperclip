@@ -151,6 +151,89 @@ describe("OpenCode local skill injection", () => {
     }
   });
 
+  it("passes allowed Paperclip MCP servers into the OpenCode runtime config", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-opencode-mcp-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "opencode");
+    const token = "runtime-mcp-secret";
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.writeFile(commandPath, "#!/bin/sh\nexit 0\n", "utf8");
+    await fs.chmod(commandPath, 0o755);
+
+    let capturedConfig: Record<string, unknown> | null = null;
+    let capturedEnv: Record<string, string> | null = null;
+    runProcessMock.mockReset();
+    runProcessMock.mockImplementationOnce(async (_runId, _target, _command, _args, options) => {
+      capturedEnv = (options as { env: Record<string, string> }).env;
+      capturedConfig = JSON.parse(
+        await fs.readFile(path.join(capturedEnv.XDG_CONFIG_HOME, "opencode", "opencode.json"), "utf8"),
+      ) as Record<string, unknown>;
+      return probeResult({
+        stdout: JSON.stringify({
+          type: "text",
+          sessionID: "session-mcp",
+          part: { text: "done" },
+        }),
+      });
+    });
+
+    try {
+      const result = await execute({
+        runId: "run-mcp",
+        agent: {
+          id: "agent-mcp",
+          companyId: "company-1",
+          name: "OpenCode MCP",
+          adapterType: "opencode_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: workspace,
+          model: "openai/gpt-5",
+          env: { OPENCODE_ALLOW_ALL_MODELS: "1" },
+          promptTemplate: "Run the task.",
+        },
+        context: {},
+        runtimeMcp: {
+          getServers: () => [{
+            name: "mssql",
+            url: "https://paperclip.test/api/tool-gateway/gateways/mssql/mcp",
+            token,
+            connectionId: "connection-mssql-1",
+          }],
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(capturedEnv?.PAPERCLIP_OPENCODE_MCP_TOKEN_1).toBe(token);
+      expect(capturedConfig).toMatchObject({
+        mcp: {
+          mssql: {
+            type: "remote",
+            url: "https://paperclip.test/api/tool-gateway/gateways/mssql/mcp",
+            enabled: true,
+            oauth: false,
+            headers: {
+              Authorization: "Bearer {env:PAPERCLIP_OPENCODE_MCP_TOKEN_1}",
+            },
+          },
+        },
+      });
+      expect(JSON.stringify(capturedConfig)).not.toContain(token);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("passes an OpenRouter key and complete model to OpenCode without logging the key", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-opencode-openrouter-"));
     const workspace = path.join(root, "workspace");

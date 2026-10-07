@@ -56,7 +56,13 @@ export function AiConnectionField({
   legacy?: boolean;
   readOnly?: boolean;
 }) {
-  const provider = aiProviderForAdapter(adapterType);
+  const normalizedModel = model?.trim() ?? "";
+  const provider =
+    adapterType === "opencode_local" &&
+    normalizedModel.length > 0 &&
+    !normalizedModel.startsWith("openrouter/")
+      ? undefined
+      : aiProviderForAdapter(adapterType);
   const returnFocus = useRef<HTMLElement | null>(null);
   const restoreFocus = (event: Event) => { event.preventDefault(); returnFocus.current?.focus(); };
   const [adopting, setAdopting] = useState(false);

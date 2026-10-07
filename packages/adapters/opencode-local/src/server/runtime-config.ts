@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { AdapterRuntimeMcpServer } from "@paperclipai/adapter-utils";
 import { asBoolean } from "@paperclipai/adapter-utils/server-utils";
 
 type PreparedOpenCodeRuntimeConfig = {
@@ -106,9 +107,11 @@ export async function prepareOpenCodeRuntimeConfig(input: {
   env: Record<string, string>;
   config: Record<string, unknown>;
   targetIsRemote?: boolean;
+  runtimeMcpServers?: AdapterRuntimeMcpServer[];
 }): Promise<PreparedOpenCodeRuntimeConfig> {
   const skipPermissions = asBoolean(input.config.dangerouslySkipPermissions, true);
-  if (!skipPermissions) {
+  const runtimeMcpServers = input.runtimeMcpServers ?? [];
+  if (!skipPermissions && runtimeMcpServers.length === 0) {
     return {
       env: input.env,
       notes: [],
@@ -149,9 +152,9 @@ export async function prepareOpenCodeRuntimeConfig(input: {
   }
 
   const existingConfig = await readJsonObject(runtimeConfigPath);
-  const notes = [
-    "Injected runtime OpenCode config with permission=allow for all tools and connections.",
-  ];
+  const notes = skipPermissions
+    ? ["Injected runtime OpenCode config with permission=allow for all tools and connections."]
+    : [];
 
   // Merge gateway/custom provider definitions supplied via PAPERCLIP_OPENCODE_PROVIDERS
   // (a JSON object in OpenCode's `provider` shape). OpenCode resolves a `--model
@@ -202,12 +205,49 @@ export async function prepareOpenCodeRuntimeConfig(input: {
     }
   }
 
+  const existingMcp = isPlainObject(existingConfig.mcp) ? existingConfig.mcp : {};
+  const nextMcp: Record<string, unknown> = { ...existingMcp };
+  const runtimeMcpEnv: Record<string, string> = {};
+  if (runtimeMcpServers.length > 0) {
+    const usedNames = new Set(Object.keys(nextMcp));
+    runtimeMcpServers.forEach((server, index) => {
+      let name = server.name;
+      if (usedNames.has(name)) name = `${server.name}-${server.connectionId.slice(0, 8)}`;
+      let suffix = 2;
+      while (usedNames.has(name)) {
+        name = `${server.name}-${server.connectionId.slice(0, 8)}-${suffix}`;
+        suffix += 1;
+      }
+      usedNames.add(name);
+
+      const tokenEnv = `PAPERCLIP_OPENCODE_MCP_TOKEN_${index + 1}`;
+      runtimeMcpEnv[tokenEnv] = server.token;
+      nextMcp[name] = {
+        type: "remote",
+        url: server.url,
+        enabled: true,
+        oauth: false,
+        headers: {
+          Authorization: `Bearer {env:${tokenEnv}}`,
+        },
+      };
+    });
+    notes.push(
+      `Injected ${runtimeMcpServers.length} Paperclip MCP server(s) into the runtime OpenCode config: ${runtimeMcpServers.map((server) => server.name).join(", ")}.`,
+    );
+  }
+
   const nextConfig: Record<string, unknown> = {
     ...existingConfig,
-    permission: "allow",
   };
+  if (skipPermissions) {
+    nextConfig.permission = "allow";
+  }
   if (Object.keys(nextProvider).length > 0) {
     nextConfig.provider = nextProvider;
+  }
+  if (Object.keys(nextMcp).length > 0) {
+    nextConfig.mcp = nextMcp;
   }
 
   // Pin OpenCode's auxiliary "small" model (used for session-title generation and
@@ -226,6 +266,7 @@ export async function prepareOpenCodeRuntimeConfig(input: {
   return {
     env: {
       ...input.env,
+      ...runtimeMcpEnv,
       XDG_CONFIG_HOME: runtimeConfigHome,
     },
     notes,
